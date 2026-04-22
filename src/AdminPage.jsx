@@ -25,6 +25,17 @@ function formatDate(dateString) {
   return `${y}.${m}.${day}`;
 }
 
+function formatDateTime(dateString) {
+  if (!dateString) return "";
+  const d = new Date(dateString);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${y}.${m}.${day} ${hh}:${mm}`;
+}
+
 function getMonthKey(dateString) {
   const d = new Date(dateString + "T00:00:00");
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -48,9 +59,9 @@ function getWeekLabel(dateString) {
 }
 
 function statusText(status) {
-  if (status === "confirmed") return "확정";
-  if (status === "canceled") return "취소";
-  return "보류";
+  if (status === "confirmed") return "승인";
+  if (status === "canceled") return "선착마감";
+  return "승인대기";
 }
 
 function statusColor(status) {
@@ -179,6 +190,32 @@ export default function AdminPage() {
         return new Date(a.createdAt) - new Date(b.createdAt);
       });
   }, [data, archiveMonth, archiveWeek]);
+
+  const topApplicants = useMemo(() => {
+    const counts = {};
+
+    data.applications.forEach((item) => {
+        const key = `${item.name} (${item.birth6})`;
+        counts[key] = (counts[key] || 0) + 1;
+    });
+
+    return Object.entries(counts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5);
+}, [data]);
+
+const topGuestMembers = useMemo(() => {
+  const counts = {};
+
+  data.applications.forEach((item) => {
+    const key = item.guestMember || "미입력";
+    counts[key] = (counts[key] || 0) + 1;
+  });
+
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+}, [data]);
 
   const adminSelectableDates = useMemo(() => {
     const today = new Date();
@@ -534,6 +571,10 @@ export default function AdminPage() {
                                 생년월일 {item.birth6} / 전화번호 {item.phone}
                               </div>
 
+                              <div style={{ color: "#64748b", marginTop: "5px", fontSize: "14px" }}>
+                                신청 시각 {formatDateTime(item.createdAt)}
+                                </div>
+
                               <div
                                 style={{
                                   display: "flex",
@@ -546,19 +587,19 @@ export default function AdminPage() {
                                   onClick={() => updateApplicationStatus(item.id, "confirmed")}
                                   style={smallButtonStyle}
                                 >
-                                  확정
+                                  승인
                                 </button>
                                 <button
                                   onClick={() => updateApplicationStatus(item.id, "pending")}
                                   style={smallButtonStyle}
                                 >
-                                  보류
+                                  승인대기
                                 </button>
                                 <button
                                   onClick={() => updateApplicationStatus(item.id, "canceled")}
                                   style={smallDangerButtonStyle}
                                 >
-                                  취소
+                                  선착마감
                                 </button>
                                 <button
                                   onClick={() => deleteApplication(item.id)}
@@ -669,6 +710,66 @@ export default function AdminPage() {
                       <div style={{ color: "#64748b" }}>선택한 조건의 과거 기록이 없습니다.</div>
                     )}
                   </div>
+                </section>
+
+                <section style={adminSectionStyle}>
+                    <h3 style={adminTitleStyle}>신청 통계 Top 5</h3>
+
+                    <div
+                        style={{
+                            display: "grid",
+                            gridTemplateColumns: windowWidth < 900 ? "1fr" : "1fr 1fr",
+                            gap: "16px",
+                        }}
+                    >
+                        <div
+                            style={{
+                                border: "1px solid #e5e7eb",
+                                borderRadius: "16px",
+                                padding: "16px",
+                                background: "#fcfdff",
+                            }}
+                        >
+                            <div style={{ fontWeight: "800", marginBottom: "10px", color: "#0f172a" }}>
+                                가장 많이 신청한 사람 Top 5
+                            </div>
+                            <div style={{ display: "grid", gap: "8px" }}>
+                                {topApplicants.length === 0 ? (
+                                    <div style={{ color: "#64748b" }}>데이터가 없습니다.</div>
+                                ) : (
+                                    topApplicants.map(([name, count], index) => (
+                                        <div key={name} style={{ color: "#334155", fontSize: "14px" }}>
+                                            {index + 1}. {name} - {count}회
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+
+                        <div
+                            style={{
+                                border: "1px solid #e5e7eb",
+                                borderRadius: "16px",
+                                padding: "16px",
+                                background: "#fcfdff",
+                            }}
+                        >
+                            <div style={{ fontWeight: "800", marginBottom: "10px", color: "#0f172a" }}>
+                                초대회원 Top 5
+                            </div>
+                            <div style={{ display: "grid", gap: "8px" }}>
+                                {topGuestMembers.length === 0 ? (
+                                    <div style={{ color: "#64748b" }}>데이터가 없습니다.</div>
+                                ) : (
+                                    topGuestMembers.map(([name, count], index) => (
+                                        <div key={name} style={{ color: "#334155", fontSize: "14px" }}>
+                                            {index + 1}. {name} - {count}회
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    </div>
                 </section>
 
                 <div style={{ display: "flex", justifyContent: "flex-start" }}>

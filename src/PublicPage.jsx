@@ -82,9 +82,9 @@ function getAvailabilityText(data, date) {
 }
 
 function statusText(status) {
-  if (status === "confirmed") return "확정";
-  if (status === "canceled") return "취소";
-  return "보류";
+  if (status === "confirmed") return "승인";
+  if (status === "canceled") return "선착마감";
+  return "승인대기";
 }
 
 function statusColor(status) {

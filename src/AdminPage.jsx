@@ -1,6 +1,6 @@
+import { supabase } from "./supabase";
 import React, { useEffect, useMemo, useState } from "react";
 
-const STORAGE_KEY = "solall_guest_site_v1";
 const ADMIN_PASSWORD_KEY = "solall_admin_password_v1";
 const ADMIN_SESSION_KEY = "solall_admin_session_v1";
 
@@ -15,27 +15,6 @@ const initialData = {
   daySettings: [],
   applications: [],
 };
-
-function loadData() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return initialData;
-    const parsed = JSON.parse(raw);
-    return {
-      ...initialData,
-      ...parsed,
-      settings: { ...initialData.settings, ...(parsed.settings || {}) },
-      daySettings: parsed.daySettings || [],
-      applications: parsed.applications || [],
-    };
-  } catch {
-    return initialData;
-  }
-}
-
-function saveData(data) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-}
 
 function formatDate(dateString) {
   if (!dateString) return "";
@@ -102,22 +81,53 @@ export default function AdminPage() {
     capacity: 5,
   });
 
-  useEffect(() => {
-    const loaded = loadData();
-    const normalized = {
-      ...loaded,
-      applications: (loaded.applications || []).map((app) => ({
-        ...app,
-        phoneLast4: app.phoneLast4 || String(app.phone || "").slice(-4),
-        guestMember: app.guestMember || app.guestOf || "",
+  async function fetchAdminData() {
+    const { data: settingsRow } = await supabase
+      .from("site_settings")
+      .select("*")
+      .eq("id", 1)
+      .single();
+
+    const { data: daySettingsRows } = await supabase
+      .from("day_settings")
+      .select("*")
+      .order("date", { ascending: true });
+
+    const { data: applicationRows } = await supabase
+      .from("guest_applications")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    setData({
+      settings: {
+        clubName: settingsRow?.club_name ?? initialData.settings.clubName,
+        bookingOpenHour:
+          settingsRow?.booking_open_hour ?? initialData.settings.bookingOpenHour,
+        defaultCapacity:
+          settingsRow?.default_capacity ?? initialData.settings.defaultCapacity,
+      },
+      daySettings: (daySettingsRows ?? []).map((row) => ({
+        date: row.date,
+        enabled: row.enabled,
+        capacity: row.capacity,
       })),
-    };
-    setData(normalized);
-  }, []);
+      applications: (applicationRows ?? []).map((row) => ({
+        id: row.id,
+        date: row.date,
+        name: row.name,
+        level: row.level,
+        birth6: row.birth6,
+        phone: row.phone,
+        guestMember: row.guest_member,
+        status: row.status,
+        createdAt: row.created_at,
+      })),
+    });
+  }
 
   useEffect(() => {
-    saveData(data);
-  }, [data]);
+    fetchAdminData();
+  }, []);
 
   useEffect(() => {
     const onResize = () => setWindowWidth(window.innerWidth);
@@ -213,57 +223,27 @@ export default function AdminPage() {
     setAdminLoggedIn(false);
   }
 
-  function updateApplicationStatus(id, status) {
-    const nextData = {
-      ...data,
-      applications: data.applications.map((app) =>
-        app.id === id ? { ...app, status } : app
-      ),
-    };
-    setData(nextData);
+  async function updateApplicationStatus(id, status) {
+    await supabase.from("guest_applications").update({ status }).eq("id", id);
+    await fetchAdminData();
   }
 
-  function deleteApplication(id) {
-    const nextData = {
-      ...data,
-      applications: data.applications.filter((app) => app.id !== id),
-    };
-    setData(nextData);
+  async function deleteApplication(id) {
+    await supabase.from("guest_applications").delete().eq("id", id);
+    await fetchAdminData();
   }
 
-  function saveDaySetting() {
+  async function saveDaySetting() {
     if (!dayForm.date) return;
 
-    const exists = data.daySettings.some((d) => d.date === dayForm.date);
-    let nextDaySettings;
+    await supabase.from("day_settings").upsert({
+      date: dayForm.date,
+      enabled: dayForm.enabled,
+      capacity: Number(dayForm.capacity),
+    });
 
-    if (exists) {
-      nextDaySettings = data.daySettings.map((d) =>
-        d.date === dayForm.date
-          ? {
-              ...d,
-              enabled: dayForm.enabled,
-              capacity: Number(dayForm.capacity),
-            }
-          : d
-      );
-    } else {
-      nextDaySettings = [
-        ...data.daySettings,
-        {
-          date: dayForm.date,
-          enabled: dayForm.enabled,
-          capacity: Number(dayForm.capacity),
-        },
-      ];
-    }
+    await fetchAdminData();
 
-    const nextData = {
-      ...data,
-      daySettings: nextDaySettings.sort((a, b) => a.date.localeCompare(b.date)),
-    };
-
-    setData(nextData);
     setDayForm({
       date: "",
       enabled: true,
@@ -271,12 +251,20 @@ export default function AdminPage() {
     });
   }
 
-  function removeDaySetting(date) {
-    const nextData = {
-      ...data,
-      daySettings: data.daySettings.filter((d) => d.date !== date),
-    };
-    setData(nextData);
+  async function removeDaySetting(date) {
+    await supabase.from("day_settings").delete().eq("date", date);
+    await fetchAdminData();
+  }
+
+  async function saveSiteSettings() {
+    await supabase.from("site_settings").upsert({
+      id: 1,
+      club_name: data.settings.clubName,
+      booking_open_hour: Number(data.settings.bookingOpenHour),
+      default_capacity: Number(data.settings.defaultCapacity),
+    });
+
+    await fetchAdminData();
   }
 
   function groupByDate(items) {
@@ -395,6 +383,10 @@ export default function AdminPage() {
                       />
                     </div>
                   </div>
+
+                  <button onClick={saveSiteSettings} style={primaryButtonStyle}>
+                    기본 설정 저장
+                  </button>
                 </section>
 
                 <section style={adminSectionStyle}>

@@ -1,7 +1,6 @@
+import { supabase } from "./supabase";
 import React, { useEffect, useMemo, useState } from "react";
 import logo from "./assets/solohlclub_logo.png";
-
-const STORAGE_KEY = "solall_guest_site_v1";
 
 const initialData = {
   settings: {
@@ -12,27 +11,6 @@ const initialData = {
   daySettings: [],
   applications: [],
 };
-
-function loadData() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return initialData;
-    const parsed = JSON.parse(raw);
-    return {
-      ...initialData,
-      ...parsed,
-      settings: { ...initialData.settings, ...(parsed.settings || {}) },
-      daySettings: parsed.daySettings || [],
-      applications: parsed.applications || [],
-    };
-  } catch {
-    return initialData;
-  }
-}
-
-function saveData(data) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-}
 
 function onlyDigits(value) {
   return String(value).replace(/\D/g, "");
@@ -136,22 +114,54 @@ export default function PublicPage() {
   const [checkResults, setCheckResults] = useState([]);
   const [checkSearched, setCheckSearched] = useState(false);
 
-  useEffect(() => {
-    const loaded = loadData();
-    const normalized = {
-      ...loaded,
-      applications: (loaded.applications || []).map((app) => ({
-        ...app,
-        phoneLast4: app.phoneLast4 || String(app.phone || "").slice(-4),
-        guestMember: app.guestMember || app.guestOf || "",
+  async function fetchPublicData() {
+    const { data: settingsRow } = await supabase
+      .from("site_settings")
+      .select("*")
+      .eq("id", 1)
+      .single();
+
+    const { data: daySettingsRows } = await supabase
+      .from("day_settings")
+      .select("*")
+      .order("date", { ascending: true });
+
+    const { data: applicationRows } = await supabase
+      .from("guest_applications")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    setData({
+      settings: {
+        clubName: settingsRow?.club_name ?? initialData.settings.clubName,
+        bookingOpenHour:
+          settingsRow?.booking_open_hour ?? initialData.settings.bookingOpenHour,
+        defaultCapacity:
+          settingsRow?.default_capacity ?? initialData.settings.defaultCapacity,
+      },
+      daySettings: (daySettingsRows ?? []).map((row) => ({
+        date: row.date,
+        enabled: row.enabled,
+        capacity: row.capacity,
       })),
-    };
-    setData(normalized);
-  }, []);
+      applications: (applicationRows ?? []).map((row) => ({
+        id: row.id,
+        date: row.date,
+        name: row.name,
+        level: row.level,
+        birth6: row.birth6,
+        phone: row.phone,
+        phoneLast4: row.phone_last4,
+        guestMember: row.guest_member,
+        status: row.status,
+        createdAt: row.created_at,
+      })),
+    });
+  }
 
   useEffect(() => {
-    saveData(data);
-  }, [data]);
+    fetchPublicData();
+  }, []);
 
   useEffect(() => {
     const onResize = () => setWindowWidth(window.innerWidth);
@@ -190,7 +200,7 @@ export default function PublicPage() {
     return list;
   }, []);
 
-  function handleApply() {
+  async function handleApply() {
     const cleanBirth6 = onlyDigits(applyForm.birth6).slice(0, 6);
     const cleanPhone = onlyDigits(applyForm.phone).slice(0, 11);
 
@@ -229,7 +239,9 @@ export default function PublicPage() {
     }
 
     if (!canOpenByTime(applyForm.date, data.settings.bookingOpenHour)) {
-      setApplyMessage(`해당 날짜 신청은 ${data.settings.bookingOpenHour}:00부터 가능합니다.`);
+      setApplyMessage(
+        `해당 날짜 신청은 ${data.settings.bookingOpenHour}:00부터 가능합니다.`
+      );
       return;
     }
 
@@ -253,26 +265,26 @@ export default function PublicPage() {
       return;
     }
 
-    const nextData = {
-      ...data,
-      applications: [
-        ...data.applications,
-        {
-          id: crypto.randomUUID(),
-          date: applyForm.date,
-          name: applyForm.name,
-          level: applyForm.level,
-          birth6: cleanBirth6,
-          phone: cleanPhone,
-          phoneLast4: cleanPhone.slice(-4),
-          guestMember: applyForm.guestMember,
-          status: "pending",
-          createdAt: new Date().toISOString(),
-        },
-      ],
-    };
+    const { error } = await supabase.from("guest_applications").insert([
+      {
+        date: applyForm.date,
+        name: applyForm.name,
+        level: applyForm.level,
+        birth6: cleanBirth6,
+        phone: cleanPhone,
+        phone_last4: cleanPhone.slice(-4),
+        guest_member: applyForm.guestMember,
+        status: "pending",
+      },
+    ]);
 
-    setData(nextData);
+    if (error) {
+      setApplyMessage("신청 저장 중 오류가 발생했습니다.");
+      return;
+    }
+
+    await fetchPublicData();
+
     setApplyMessage("신청이 완료되었습니다. 신청확인에서 상태를 조회할 수 있습니다.");
     setApplyForm({
       date: "",
@@ -284,13 +296,31 @@ export default function PublicPage() {
     });
   }
 
-  function handleCheck() {
+  async function handleCheck() {
     const b = onlyDigits(checkBirth6).slice(0, 6);
     const p = onlyDigits(checkPhoneLast4).slice(0, 4);
 
-    const found = data.applications
-      .filter((app) => app.birth6 === b && app.phoneLast4 === p)
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const { data: rows, error } = await supabase
+      .from("guest_applications")
+      .select("*")
+      .eq("birth6", b)
+      .eq("phone_last4", p)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      setCheckResults([]);
+      setCheckSearched(true);
+      return;
+    }
+
+    const found = (rows ?? []).map((row) => ({
+      id: row.id,
+      date: row.date,
+      name: row.name,
+      level: row.level,
+      guestMember: row.guest_member,
+      status: row.status,
+    }));
 
     setCheckResults(found);
     setCheckSearched(true);

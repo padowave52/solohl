@@ -164,7 +164,7 @@ export default function AdminPage() {
   const currentMonthItems = useMemo(() => {
   return data.applications
     .filter((a) => getMonthKey(a.date) === selectedMonth)
-    .filter((a) => selectedDay === "all" || a.date.slice(8, 10) === selectedDay)
+    .filter((a) => selectedDay === "all" || a.date === selectedDay)
     .sort((a, b) => {
       if (a.date !== b.date) return a.date.localeCompare(b.date);
       return new Date(a.createdAt) - new Date(b.createdAt);
@@ -172,25 +172,23 @@ export default function AdminPage() {
     }, [data, selectedMonth, selectedDay]);
 
   const currentMonthDayOptions = useMemo(() => {
-  return [
-    ...new Set(
-      data.applications
-        .filter((a) => getMonthKey(a.date) === selectedMonth)
-        .map((a) => a.date.slice(8, 10))
-    ),
-        ].sort((a, b) => Number(a) - Number(b));
-    }, [data, selectedMonth]);
+  const weekdayNames = ["일", "월", "화", "수", "목", "금", "토"];
 
-  const archiveWeekOptions = useMemo(() => {
-    if (!archiveMonth) return [];
     return [
-      ...new Set(
+        ...new Map(
         data.applications
-          .filter((a) => getMonthKey(a.date) === archiveMonth)
-          .map((a) => String(getWeekOfMonth(a.date)))
-      ),
-    ].sort((a, b) => Number(a) - Number(b));
-  }, [data, archiveMonth]);
+            .filter((a) => getMonthKey(a.date) === selectedMonth)
+            .sort((a, b) => a.date.localeCompare(b.date))
+            .map((a) => {
+            const d = new Date(a.date + "T00:00:00");
+            const mm = a.date.slice(5, 7);
+            const dd = a.date.slice(8, 10);
+            const label = `${mm}/${dd} (${weekdayNames[d.getDay()]})`;
+            return [a.date, { value: a.date, label }];
+            })
+        ).values(),
+    ];
+    }, [data, selectedMonth]);
 
   const archiveItems = useMemo(() => {
     if (!archiveMonth) return [];
@@ -563,18 +561,18 @@ const topGuestMembers = useMemo(() => {
                         <div>
                             <label style={labelStyle}>조회 일</label>
                             <select
-                            value={selectedDay}
-                            onChange={(e) => setSelectedDay(e.target.value)}
-                            style={inputStyle}
+                                value={selectedDay}
+                                onChange={(e) => setSelectedDay(e.target.value)}
+                                style={inputStyle}
                             >
-                            <option value="all">전체</option>
-                            {currentMonthDayOptions.map((day) => (
-                                <option key={day} value={day}>
-                                {day}일
+                                <option value="all">전체</option>
+                                {currentMonthDayOptions.map((day) => (
+                                <option key={day.value} value={day.value}>
+                                    {day.label}
                                 </option>
-                            ))}
+                                ))}
                             </select>
-                        </div>
+                            </div>
                     </div>
 
                   <div style={{ display: "grid", gap: "16px" }}>

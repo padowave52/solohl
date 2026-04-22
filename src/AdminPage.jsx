@@ -171,6 +171,17 @@ export default function AdminPage() {
     });
     }, [data, selectedMonth, selectedDay]);
 
+  const archiveWeekOptions = useMemo(() => {
+    if (!archiveMonth) return [];
+    return [
+        ...new Set(
+        data.applications
+            .filter((a) => getMonthKey(a.date) === archiveMonth)
+            .map((a) => String(getWeekOfMonth(a.date)))
+        ),
+    ].sort((a, b) => Number(a) - Number(b));
+    }, [data, archiveMonth]);
+
   const currentMonthDayOptions = useMemo(() => {
   const weekdayNames = ["일", "월", "화", "수", "목", "금", "토"];
 

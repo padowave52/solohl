@@ -83,6 +83,7 @@ export default function AdminPage() {
   const [adminLoginError, setAdminLoginError] = useState("");
 
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthKey());
+  const [selectedDay, setSelectedDay] = useState("all");
   const [archiveMonth, setArchiveMonth] = useState("");
   const [archiveWeek, setArchiveWeek] = useState("all");
 
@@ -161,13 +162,24 @@ export default function AdminPage() {
   }, [data]);
 
   const currentMonthItems = useMemo(() => {
-    return data.applications
-      .filter((a) => getMonthKey(a.date) === selectedMonth)
-      .sort((a, b) => {
-        if (a.date !== b.date) return a.date.localeCompare(b.date);
-        return new Date(a.createdAt) - new Date(b.createdAt);
-      });
-  }, [data, selectedMonth]);
+  return data.applications
+    .filter((a) => getMonthKey(a.date) === selectedMonth)
+    .filter((a) => selectedDay === "all" || a.date.slice(8, 10) === selectedDay)
+    .sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      return new Date(a.createdAt) - new Date(b.createdAt);
+    });
+    }, [data, selectedMonth, selectedDay]);
+
+  const currentMonthDayOptions = useMemo(() => {
+  return [
+    ...new Set(
+      data.applications
+        .filter((a) => getMonthKey(a.date) === selectedMonth)
+        .map((a) => a.date.slice(8, 10))
+    ),
+        ].sort((a, b) => Number(a) - Number(b));
+    }, [data, selectedMonth]);
 
   const archiveWeekOptions = useMemo(() => {
     if (!archiveMonth) return [];
@@ -521,20 +533,49 @@ const topGuestMembers = useMemo(() => {
                 <section style={adminSectionStyle}>
                   <h3 style={adminTitleStyle}>이번 달 신청목록</h3>
 
-                  <div style={{ maxWidth: "260px", marginBottom: "16px" }}>
-                    <label style={labelStyle}>조회 월</label>
-                    <select
-                      value={selectedMonth}
-                      onChange={(e) => setSelectedMonth(e.target.value)}
-                      style={inputStyle}
+                  <div
+                    style={{
+                        display: "grid",
+                        gridTemplateColumns: windowWidth < 700 ? "1fr" : "260px 180px",
+                        gap: "16px",
+                        marginBottom: "16px",
+                        alignItems: "end",
+                    }}
                     >
-                      {monthOptions.map((m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                        <div>
+                            <label style={labelStyle}>조회 연도-월</label>
+                            <select
+                            value={selectedMonth}
+                            onChange={(e) => {
+                                setSelectedMonth(e.target.value);
+                                setSelectedDay("all");
+                            }}
+                            style={inputStyle}
+                            >
+                            {monthOptions.map((m) => (
+                                <option key={m} value={m}>
+                                {m}
+                                </option>
+                            ))}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label style={labelStyle}>조회 일</label>
+                            <select
+                            value={selectedDay}
+                            onChange={(e) => setSelectedDay(e.target.value)}
+                            style={inputStyle}
+                            >
+                            <option value="all">전체</option>
+                            {currentMonthDayOptions.map((day) => (
+                                <option key={day} value={day}>
+                                {day}일
+                                </option>
+                            ))}
+                            </select>
+                        </div>
+                    </div>
 
                   <div style={{ display: "grid", gap: "16px" }}>
                     {groupByDate(currentMonthItems).map(([date, items]) => (

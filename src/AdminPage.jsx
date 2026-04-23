@@ -36,6 +36,13 @@ function formatDateTime(dateString) {
   return `${y}.${m}.${day} ${hh}:${mm}`;
 }
 
+function toDateString(dateObj) {
+  const y = dateObj.getFullYear();
+  const m = String(dateObj.getMonth() + 1).padStart(2, "0");
+  const d = String(dateObj.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 function getMonthKey(dateString) {
   const d = new Date(dateString + "T00:00:00");
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -68,6 +75,252 @@ function statusColor(status) {
   if (status === "confirmed") return "#15803d";
   if (status === "canceled") return "#dc2626";
   return "#b45309";
+}
+
+function getTodayLocalDateString() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function isWeekend(dateString) {
+  const d = new Date(dateString + "T00:00:00");
+  const day = d.getDay();
+  return day === 0 || day === 6;
+}
+
+function getDaySetting(data, date) {
+  return data.daySettings.find((d) => d.date === date);
+}
+
+function getCapacityForDate(data, date) {
+  const daySetting = getDaySetting(data, date);
+  return daySetting ? Number(daySetting.capacity) : Number(data.settings.defaultCapacity);
+}
+
+function countActiveApplicationsForDate(data, date) {
+  return data.applications.filter(
+    (app) => app.date === date && app.status !== "canceled"
+  ).length;
+}
+
+function getAdminDateVisualState(data, date) {
+  const today = getTodayLocalDateString();
+  const setting = getDaySetting(data, date);
+
+  if (isWeekend(date) || date < today) return "disabled";
+  if (setting && !setting.enabled) return "closed";
+  if (date > today) return "upcoming";
+
+  const cap = getCapacityForDate(data, date);
+  const used = countActiveApplicationsForDate(data, date);
+  if (used >= cap) return "closed";
+  return "open";
+}
+
+function getDateStateLabel(state) {
+  if (state === "open") return "활성화";
+  if (state === "closed") return "선택 불가";
+  if (state === "upcoming") return "비활성화 전";
+  return "선택 불가";
+}
+
+function LegendDot({ color, label }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+      <span
+        style={{
+          width: "10px",
+          height: "10px",
+          borderRadius: "999px",
+          background: color,
+          display: "inline-block",
+        }}
+      />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function MonthGrid({ monthDate, selectedDate, onSelect, data }) {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const startDay = firstDay.getDay();
+  const lastDate = new Date(year, month + 1, 0).getDate();
+  const weekNames = ["일", "월", "화", "수", "목", "금", "토"];
+
+  const cells = [];
+  for (let i = 0; i < startDay; i += 1) {
+    cells.push(<div key={`blank-${i}`} style={calendarBlankCellStyle} />);
+  }
+
+  for (let dateNum = 1; dateNum <= lastDate; dateNum += 1) {
+    const dateObj = new Date(year, month, dateNum);
+    const dateString = toDateString(dateObj);
+    const state = getAdminDateVisualState(data, dateString);
+    const selected = selectedDate === dateString;
+    const clickable = state !== "disabled";
+
+    let background = "#ffffff";
+    let color = "#0f172a";
+    let border = "1px solid #e2e8f0";
+
+    if (state === "open") {
+      background = "#eff6ff";
+      color = "#1d4ed8";
+      border = "1px solid #93c5fd";
+    } else if (state === "closed") {
+      background = "#fef2f2";
+      color = "#dc2626";
+      border = "1px solid #fecaca";
+    } else if (state === "upcoming") {
+      background = "#f8fafc";
+      color = "#64748b";
+      border = "1px solid #cbd5e1";
+    } else {
+      background = "#f8fafc";
+      color = "#94a3b8";
+      border = "1px solid #e2e8f0";
+    }
+
+    if (selected) {
+      border = "2px solid #0f172a";
+    }
+
+    cells.push(
+      <button
+        key={dateString}
+        type="button"
+        onClick={() => clickable && onSelect(dateString)}
+        disabled={!clickable}
+        title={`${formatDate(dateString)} · ${getDateStateLabel(state)}`}
+        style={{
+          ...calendarDateButtonStyle,
+          background,
+          color,
+          border,
+          cursor: clickable ? "pointer" : "not-allowed",
+          opacity: clickable ? 1 : 0.95,
+        }}
+      >
+        <div style={{ fontWeight: "800", fontSize: "15px" }}>{dateNum}</div>
+      </button>
+    );
+  }
+
+  return (
+    <div style={calendarMonthCardStyle}>
+      <div
+        style={{
+          fontSize: "18px",
+          fontWeight: "800",
+          color: "#0f172a",
+          marginBottom: "10px",
+        }}
+      >
+        {year}년 {month + 1}월
+      </div>
+
+      <div style={calendarWeekHeaderStyle}>
+        {weekNames.map((day) => (
+          <div
+            key={day}
+            style={{
+              textAlign: "center",
+              fontSize: "12px",
+              fontWeight: "700",
+              color: "#64748b",
+            }}
+          >
+            {day}
+          </div>
+        ))}
+      </div>
+
+      <div style={calendarGridStyle}>{cells}</div>
+    </div>
+  );
+}
+
+function AdminCalendarPicker({ value, onChange, data, monthsToShow = 1 }) {
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    const base = value ? new Date(value + "T00:00:00") : new Date();
+    return new Date(base.getFullYear(), base.getMonth(), 1);
+  });
+
+  const monthDates = useMemo(() => {
+    return Array.from({ length: monthsToShow }, (_, idx) => {
+      return new Date(currentMonth.getFullYear(), currentMonth.getMonth() + idx, 1);
+    });
+  }, [currentMonth, monthsToShow]);
+
+  return (
+    <div>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: "10px",
+          marginBottom: "12px",
+        }}
+      >
+        <button
+          type="button"
+          onClick={() =>
+            setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))
+          }
+          style={calendarNavButtonStyle}
+        >
+          이전
+        </button>
+
+        <div style={{ fontSize: "14px", color: "#475569", fontWeight: "700" }}>
+          관리자 날짜 선택
+        </div>
+
+        <button
+          type="button"
+          onClick={() =>
+            setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))
+          }
+          style={calendarNavButtonStyle}
+        >
+          다음
+        </button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "14px" }}>
+        {monthDates.map((monthDate) => (
+          <MonthGrid
+            key={`${monthDate.getFullYear()}-${monthDate.getMonth()}`}
+            monthDate={monthDate}
+            selectedDate={value}
+            onSelect={onChange}
+            data={data}
+          />
+        ))}
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "8px 14px",
+          marginTop: "12px",
+          fontSize: "13px",
+          color: "#475569",
+        }}
+      >
+        <LegendDot color="#2563eb" label="활성화" />
+        <LegendDot color="#ef4444" label="선택 불가" />
+        <LegendDot color="#94a3b8" label="아직 활성화 전" />
+      </div>
+    </div>
+  );
 }
 
 export default function AdminPage() {
@@ -126,11 +379,11 @@ export default function AdminPage() {
       applications: (applicationRows ?? []).map((row) => ({
         id: row.id,
         date: row.date,
-        name: row.name,
-        level: row.level,
-        birth6: row.birth6,
+        applicantName: row.name,
+        guestName: row.guest_member,
+        guestLevel: row.level,
         phone: row.phone,
-        guestMember: row.guest_member,
+        phone8: row.phone8 ?? row.phone_8 ?? (row.phone ? String(row.phone).slice(-8) : ""),
         status: row.status,
         createdAt: row.created_at,
       })),
@@ -162,44 +415,44 @@ export default function AdminPage() {
   }, [data]);
 
   const currentMonthItems = useMemo(() => {
-  return data.applications
-    .filter((a) => getMonthKey(a.date) === selectedMonth)
-    .filter((a) => selectedDay === "all" || a.date === selectedDay)
-    .sort((a, b) => {
-      if (a.date !== b.date) return a.date.localeCompare(b.date);
-      return new Date(a.createdAt) - new Date(b.createdAt);
-    });
-    }, [data, selectedMonth, selectedDay]);
+    return data.applications
+      .filter((a) => getMonthKey(a.date) === selectedMonth)
+      .filter((a) => selectedDay === "all" || a.date === selectedDay)
+      .sort((a, b) => {
+        if (a.date !== b.date) return a.date.localeCompare(b.date);
+        return new Date(a.createdAt) - new Date(b.createdAt);
+      });
+  }, [data, selectedMonth, selectedDay]);
 
   const archiveWeekOptions = useMemo(() => {
     if (!archiveMonth) return [];
     return [
-        ...new Set(
+      ...new Set(
         data.applications
-            .filter((a) => getMonthKey(a.date) === archiveMonth)
-            .map((a) => String(getWeekOfMonth(a.date)))
-        ),
+          .filter((a) => getMonthKey(a.date) === archiveMonth)
+          .map((a) => String(getWeekOfMonth(a.date)))
+      ),
     ].sort((a, b) => Number(a) - Number(b));
-    }, [data, archiveMonth]);
+  }, [data, archiveMonth]);
 
   const currentMonthDayOptions = useMemo(() => {
-  const weekdayNames = ["일", "월", "화", "수", "목", "금", "토"];
+    const weekdayNames = ["일", "월", "화", "수", "목", "금", "토"];
 
     return [
-        ...new Map(
+      ...new Map(
         data.applications
-            .filter((a) => getMonthKey(a.date) === selectedMonth)
-            .sort((a, b) => a.date.localeCompare(b.date))
-            .map((a) => {
+          .filter((a) => getMonthKey(a.date) === selectedMonth)
+          .sort((a, b) => a.date.localeCompare(b.date))
+          .map((a) => {
             const d = new Date(a.date + "T00:00:00");
             const mm = a.date.slice(5, 7);
             const dd = a.date.slice(8, 10);
             const label = `${mm}/${dd} (${weekdayNames[d.getDay()]})`;
             return [a.date, { value: a.date, label }];
-            })
-        ).values(),
+          })
+      ).values(),
     ];
-    }, [data, selectedMonth]);
+  }, [data, selectedMonth]);
 
   const archiveItems = useMemo(() => {
     if (!archiveMonth) return [];
@@ -216,54 +469,27 @@ export default function AdminPage() {
     const counts = {};
 
     data.applications.forEach((item) => {
-        const key = `${item.name} (${item.birth6})`;
-        counts[key] = (counts[key] || 0) + 1;
+      const key = `${item.applicantName} (${item.phone8 || "미입력"})`;
+      counts[key] = (counts[key] || 0) + 1;
     });
 
     return Object.entries(counts)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5);
-}, [data]);
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+  }, [data]);
 
-const topGuestMembers = useMemo(() => {
-  const counts = {};
+  const topGuestMembers = useMemo(() => {
+    const counts = {};
 
-  data.applications.forEach((item) => {
-    const key = item.guestMember || "미입력";
-    counts[key] = (counts[key] || 0) + 1;
-  });
+    data.applications.forEach((item) => {
+      const key = item.guestName || "미입력";
+      counts[key] = (counts[key] || 0) + 1;
+    });
 
-  return Object.entries(counts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
-}, [data]);
-
-  const adminSelectableDates = useMemo(() => {
-    const today = new Date();
-    const list = [];
-    const weekdayNames = ["일", "월", "화", "수", "목", "금", "토"];
-
-    let offset = 0;
-
-    while (list.length < 30) {
-      const d = new Date(today);
-      d.setDate(today.getDate() + offset);
-      offset += 1;
-
-      const dayOfWeek = d.getDay();
-      if (dayOfWeek === 0 || dayOfWeek === 6) continue;
-
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      const value = `${y}-${m}-${day}`;
-      const label = `${m}/${day} (${weekdayNames[dayOfWeek]})`;
-
-      list.push({ value, label });
-    }
-
-    return list;
-  }, []);
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+  }, [data]);
 
   function handleAdminLogin() {
     const savedPassword = localStorage.getItem(ADMIN_PASSWORD_KEY) || DEFAULT_ADMIN_PASSWORD;
@@ -389,6 +615,7 @@ const topGuestMembers = useMemo(() => {
               <div style={{ display: "grid", gap: "24px" }}>
                 <section style={adminSectionStyle}>
                   <h3 style={adminTitleStyle}>기본 신청 설정</h3>
+
                   <div style={{ display: "grid", gridTemplateColumns: adminColumns, gap: "16px" }}>
                     <div>
                       <label style={labelStyle}>사이트 제목</label>
@@ -403,6 +630,7 @@ const topGuestMembers = useMemo(() => {
                         style={inputStyle}
                       />
                     </div>
+
                     <div>
                       <label style={labelStyle}>신청 오픈 시간</label>
                       <input
@@ -422,6 +650,7 @@ const topGuestMembers = useMemo(() => {
                         style={inputStyle}
                       />
                     </div>
+
                     <div>
                       <label style={labelStyle}>기본 하루 인원</label>
                       <input
@@ -449,21 +678,28 @@ const topGuestMembers = useMemo(() => {
 
                 <section style={adminSectionStyle}>
                   <h3 style={adminTitleStyle}>날짜별 신청 가능/마감 설정</h3>
+
+                  <div style={{ marginBottom: "16px" }}>
+                    <label style={labelStyle}>날짜</label>
+                    <div style={{ marginTop: "8px" }}>
+                      <AdminCalendarPicker
+                        value={dayForm.date}
+                        onChange={(date) => setDayForm({ ...dayForm, date })}
+                        data={data}
+                        monthsToShow={1}
+                      />
+                    </div>
+                  </div>
+
                   <div style={{ display: "grid", gridTemplateColumns: adminColumns, gap: "16px" }}>
                     <div>
-                      <label style={labelStyle}>날짜</label>
-                      <select
-                        value={dayForm.date}
-                        onChange={(e) => setDayForm({ ...dayForm, date: e.target.value })}
-                        style={inputStyle}
-                      >
-                        <option value="">날짜 선택</option>
-                        {adminSelectableDates.map((item) => (
-                          <option key={item.value} value={item.value}>
-                            {item.label}
-                          </option>
-                        ))}
-                      </select>
+                      <label style={labelStyle}>선택 날짜</label>
+                      <input
+                        value={dayForm.date ? formatDate(dayForm.date) : ""}
+                        readOnly
+                        style={{ ...inputStyle, background: "#f8fafc" }}
+                        placeholder="달력에서 날짜 선택"
+                      />
                     </div>
 
                     <div>
@@ -528,6 +764,7 @@ const topGuestMembers = useMemo(() => {
                             {item.enabled ? "신청 가능" : "신청 마감"} · {item.capacity}명
                           </div>
                         </div>
+
                         <button
                           onClick={() => removeDaySetting(item.date)}
                           style={smallDangerButtonStyle}
@@ -544,47 +781,47 @@ const topGuestMembers = useMemo(() => {
 
                   <div
                     style={{
-                        display: "grid",
-                        gridTemplateColumns: windowWidth < 700 ? "1fr" : "260px 180px",
-                        gap: "16px",
-                        marginBottom: "16px",
-                        alignItems: "end",
+                      display: "grid",
+                      gridTemplateColumns: windowWidth < 700 ? "1fr" : "260px 180px",
+                      gap: "16px",
+                      marginBottom: "16px",
+                      alignItems: "end",
                     }}
-                    >
-                        <div>
-                            <label style={labelStyle}>조회 연도-월</label>
-                            <select
-                            value={selectedMonth}
-                            onChange={(e) => {
-                                setSelectedMonth(e.target.value);
-                                setSelectedDay("all");
-                            }}
-                            style={inputStyle}
-                            >
-                            {monthOptions.map((m) => (
-                                <option key={m} value={m}>
-                                {m}
-                                </option>
-                            ))}
-                            </select>
-                        </div>
-
-                        <div>
-                            <label style={labelStyle}>조회 일</label>
-                            <select
-                                value={selectedDay}
-                                onChange={(e) => setSelectedDay(e.target.value)}
-                                style={inputStyle}
-                            >
-                                <option value="all">전체</option>
-                                {currentMonthDayOptions.map((day) => (
-                                <option key={day.value} value={day.value}>
-                                    {day.label}
-                                </option>
-                                ))}
-                            </select>
-                            </div>
+                  >
+                    <div>
+                      <label style={labelStyle}>조회 연도-월</label>
+                      <select
+                        value={selectedMonth}
+                        onChange={(e) => {
+                          setSelectedMonth(e.target.value);
+                          setSelectedDay("all");
+                        }}
+                        style={inputStyle}
+                      >
+                        {monthOptions.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </select>
                     </div>
+
+                    <div>
+                      <label style={labelStyle}>조회 일</label>
+                      <select
+                        value={selectedDay}
+                        onChange={(e) => setSelectedDay(e.target.value)}
+                        style={inputStyle}
+                      >
+                        <option value="all">전체</option>
+                        {currentMonthDayOptions.map((day) => (
+                          <option key={day.value} value={day.value}>
+                            {day.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
 
                   <div style={{ display: "grid", gap: "16px" }}>
                     {groupByDate(currentMonthItems).map(([date, items]) => (
@@ -612,18 +849,20 @@ const topGuestMembers = useMemo(() => {
                               }}
                             >
                               <div style={{ fontWeight: "700", color: "#0f172a" }}>
-                                {item.name} / {item.level}
+                                신청자 {item.applicantName}
                               </div>
                               <div style={{ color: "#64748b", marginTop: "5px", fontSize: "14px" }}>
-                                초대 멤버 {item.guestMember}
+                                게스트 이름 {item.guestName}
                               </div>
                               <div style={{ color: "#64748b", marginTop: "5px", fontSize: "14px" }}>
-                                생년월일 {item.birth6} / 전화번호 {item.phone}
+                                게스트 급수 {item.guestLevel}
                               </div>
-
+                              <div style={{ color: "#64748b", marginTop: "5px", fontSize: "14px" }}>
+                                신청자 전화번호 010-{item.phone8?.slice(0, 4)}-{item.phone8?.slice(4, 8)}
+                              </div>
                               <div style={{ color: "#64748b", marginTop: "5px", fontSize: "14px" }}>
                                 신청 시각 {formatDateTime(item.createdAt)}
-                                </div>
+                              </div>
 
                               <div
                                 style={{
@@ -742,7 +981,10 @@ const topGuestMembers = useMemo(() => {
                           {formatDate(item.date)} · {getWeekLabel(item.date)}
                         </div>
                         <div style={{ color: "#64748b", marginTop: "5px", fontSize: "14px" }}>
-                          {item.name} / {item.level} / 초대 멤버 {item.guestMember}
+                          신청자 {item.applicantName} / 게스트 {item.guestName} / 급수 {item.guestLevel}
+                        </div>
+                        <div style={{ color: "#64748b", marginTop: "5px", fontSize: "14px" }}>
+                          전화번호 010-{item.phone8?.slice(0, 4)}-{item.phone8?.slice(4, 8)}
                         </div>
                         <div
                           style={{
@@ -763,63 +1005,63 @@ const topGuestMembers = useMemo(() => {
                 </section>
 
                 <section style={adminSectionStyle}>
-                    <h3 style={adminTitleStyle}>신청 통계 Top 5</h3>
+                  <h3 style={adminTitleStyle}>신청 통계 Top 5</h3>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: windowWidth < 900 ? "1fr" : "1fr 1fr",
+                      gap: "16px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        border: "1px solid #e5e7eb",
+                        borderRadius: "16px",
+                        padding: "16px",
+                        background: "#fcfdff",
+                      }}
+                    >
+                      <div style={{ fontWeight: "800", marginBottom: "10px", color: "#0f172a" }}>
+                        가장 많이 신청한 사람 Top 5
+                      </div>
+                      <div style={{ display: "grid", gap: "8px" }}>
+                        {topApplicants.length === 0 ? (
+                          <div style={{ color: "#64748b" }}>데이터가 없습니다.</div>
+                        ) : (
+                          topApplicants.map(([name, count], index) => (
+                            <div key={name} style={{ color: "#334155", fontSize: "14px" }}>
+                              {index + 1}. {name} - {count}회
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
 
                     <div
-                        style={{
-                            display: "grid",
-                            gridTemplateColumns: windowWidth < 900 ? "1fr" : "1fr 1fr",
-                            gap: "16px",
-                        }}
+                      style={{
+                        border: "1px solid #e5e7eb",
+                        borderRadius: "16px",
+                        padding: "16px",
+                        background: "#fcfdff",
+                      }}
                     >
-                        <div
-                            style={{
-                                border: "1px solid #e5e7eb",
-                                borderRadius: "16px",
-                                padding: "16px",
-                                background: "#fcfdff",
-                            }}
-                        >
-                            <div style={{ fontWeight: "800", marginBottom: "10px", color: "#0f172a" }}>
-                                가장 많이 신청한 사람 Top 5
+                      <div style={{ fontWeight: "800", marginBottom: "10px", color: "#0f172a" }}>
+                        게스트 이름 Top 5
+                      </div>
+                      <div style={{ display: "grid", gap: "8px" }}>
+                        {topGuestMembers.length === 0 ? (
+                          <div style={{ color: "#64748b" }}>데이터가 없습니다.</div>
+                        ) : (
+                          topGuestMembers.map(([name, count], index) => (
+                            <div key={name} style={{ color: "#334155", fontSize: "14px" }}>
+                              {index + 1}. {name} - {count}회
                             </div>
-                            <div style={{ display: "grid", gap: "8px" }}>
-                                {topApplicants.length === 0 ? (
-                                    <div style={{ color: "#64748b" }}>데이터가 없습니다.</div>
-                                ) : (
-                                    topApplicants.map(([name, count], index) => (
-                                        <div key={name} style={{ color: "#334155", fontSize: "14px" }}>
-                                            {index + 1}. {name} - {count}회
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                        </div>
-
-                        <div
-                            style={{
-                                border: "1px solid #e5e7eb",
-                                borderRadius: "16px",
-                                padding: "16px",
-                                background: "#fcfdff",
-                            }}
-                        >
-                            <div style={{ fontWeight: "800", marginBottom: "10px", color: "#0f172a" }}>
-                                초대회원 Top 5
-                            </div>
-                            <div style={{ display: "grid", gap: "8px" }}>
-                                {topGuestMembers.length === 0 ? (
-                                    <div style={{ color: "#64748b" }}>데이터가 없습니다.</div>
-                                ) : (
-                                    topGuestMembers.map(([name, count], index) => (
-                                        <div key={name} style={{ color: "#334155", fontSize: "14px" }}>
-                                            {index + 1}. {name} - {count}회
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                        </div>
+                          ))
+                        )}
+                      </div>
                     </div>
+                  </div>
                 </section>
 
                 <div style={{ display: "flex", justifyContent: "flex-start" }}>
@@ -921,5 +1163,46 @@ const adminSectionStyle = {
   border: "1px solid #e5e7eb",
   borderRadius: "22px",
   padding: "22px",
+  background: "#ffffff",
+};
+
+const calendarNavButtonStyle = {
+  padding: "8px 12px",
+  borderRadius: "10px",
+  border: "1px solid #cbd5e1",
+  background: "#ffffff",
+  color: "#0f172a",
+  cursor: "pointer",
+  fontWeight: "700",
+};
+
+const calendarMonthCardStyle = {
+  border: "1px solid #e5e7eb",
+  borderRadius: "18px",
+  padding: "14px",
+  background: "#ffffff",
+};
+
+const calendarWeekHeaderStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+  gap: "6px",
+  marginBottom: "8px",
+};
+
+const calendarGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+  gap: "6px",
+};
+
+const calendarBlankCellStyle = {
+  minHeight: "66px",
+};
+
+const calendarDateButtonStyle = {
+  minHeight: "66px",
+  borderRadius: "12px",
+  padding: "8px 4px",
   background: "#ffffff",
 };

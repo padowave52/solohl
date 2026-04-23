@@ -13,7 +13,7 @@ const initialData = {
 };
 
 function onlyDigits(value) {
-  return String(value).replace(/\D/g, "");
+  return String(value || "").replace(/\D/g, "");
 }
 
 function formatDate(dateString) {
@@ -30,6 +30,13 @@ function getTodayLocalDateString() {
   const y = now.getFullYear();
   const m = String(now.getMonth() + 1).padStart(2, "0");
   const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function toDateString(dateObj) {
+  const y = dateObj.getFullYear();
+  const m = String(dateObj.getMonth() + 1).padStart(2, "0");
+  const d = String(dateObj.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
 }
 
@@ -60,14 +67,35 @@ function countActiveApplicationsForDate(data, date) {
   ).length;
 }
 
+function isWeekend(dateString) {
+  const d = new Date(dateString + "T00:00:00");
+  const day = d.getDay();
+  return day === 0 || day === 6;
+}
+
+function getDateVisualState(data, date) {
+  const today = getTodayLocalDateString();
+
+  if (isWeekend(date) || date < today) return "disabled";
+  if (!isDateEnabled(data, date)) return "closed";
+  if (date > today) return "upcoming";
+  if (!canOpenByTime(date, data.settings.bookingOpenHour)) return "upcoming";
+
+  const cap = getCapacityForDate(data, date);
+  const used = countActiveApplicationsForDate(data, date);
+  if (used >= cap) return "closed";
+  return "open";
+}
+
 function getAvailabilityText(data, date) {
   if (!date) return "날짜를 선택해주세요.";
 
   const today = getTodayLocalDateString();
 
+  if (isWeekend(date)) return "주말은 신청 대상 날짜가 아닙니다.";
   if (date < today) return "지난 날짜는 신청할 수 없습니다.";
-  if (date > today) return "신청은 당일 오후 12시부터 가능합니다.";
   if (!isDateEnabled(data, date)) return "관리자가 신청 마감으로 설정한 날짜입니다.";
+  if (date > today) return "아직 활성화 전 날짜입니다.";
 
   if (!canOpenByTime(date, data.settings.bookingOpenHour)) {
     return `오늘 신청은 ${data.settings.bookingOpenHour}:00부터 가능합니다.`;
@@ -93,6 +121,218 @@ function statusColor(status) {
   return "#b45309";
 }
 
+function getDateStateLabel(state) {
+  if (state === "open") return "신청 가능";
+  if (state === "closed") return "선택 불가";
+  if (state === "upcoming") return "아직 비활성화";
+  return "선택 불가";
+}
+
+function LegendDot({ color, label }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+      <span
+        style={{
+          width: "10px",
+          height: "10px",
+          borderRadius: "999px",
+          background: color,
+          display: "inline-block",
+        }}
+      />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function MonthGrid({ monthDate, selectedDate, onSelect, data }) {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const startDay = firstDay.getDay();
+  const lastDate = new Date(year, month + 1, 0).getDate();
+  const weekNames = ["일", "월", "화", "수", "목", "금", "토"];
+
+  const cells = [];
+  for (let i = 0; i < startDay; i += 1) {
+    cells.push(<div key={`blank-${i}`} style={calendarBlankCellStyle} />);
+  }
+
+  for (let dateNum = 1; dateNum <= lastDate; dateNum += 1) {
+    const dateObj = new Date(year, month, dateNum);
+    const dateString = toDateString(dateObj);
+    const state = getDateVisualState(data, dateString);
+    const selected = selectedDate === dateString;
+    const clickable = state === "open" || state === "upcoming";
+
+    let background = "#ffffff";
+    let color = "#0f172a";
+    let border = "1px solid #e2e8f0";
+
+    if (state === "open") {
+      background = "#eff6ff";
+      color = "#1d4ed8";
+      border = "1px solid #93c5fd";
+    } else if (state === "closed") {
+      background = "#fef2f2";
+      color = "#dc2626";
+      border = "1px solid #fecaca";
+    } else if (state === "upcoming") {
+      background = "#f8fafc";
+      color = "#64748b";
+      border = "1px solid #cbd5e1";
+    } else {
+      background = "#f8fafc";
+      color = "#94a3b8";
+      border = "1px solid #e2e8f0";
+    }
+
+    if (selected) {
+      border = "2px solid #0f172a";
+    }
+
+    cells.push(
+      <button
+        key={dateString}
+        type="button"
+        onClick={() => clickable && onSelect(dateString)}
+        disabled={!clickable}
+        title={`${formatDate(dateString)} · ${getDateStateLabel(state)}`}
+        style={{
+          ...calendarDateButtonStyle,
+          background,
+          color,
+          border,
+          cursor: clickable ? "pointer" : "not-allowed",
+          opacity: clickable ? 1 : 0.95,
+        }}
+      >
+        <div style={{ fontWeight: "800", fontSize: "15px" }}>{dateNum}</div>
+      </button>
+    );
+  }
+
+  return (
+    <div style={calendarMonthCardStyle}>
+      <div
+        style={{
+          fontSize: "18px",
+          fontWeight: "800",
+          color: "#0f172a",
+          marginBottom: "10px",
+        }}
+      >
+        {year}년 {month + 1}월
+      </div>
+
+      <div style={calendarWeekHeaderStyle}>
+        {weekNames.map((day) => (
+          <div
+            key={day}
+            style={{
+              textAlign: "center",
+              fontSize: "12px",
+              fontWeight: "700",
+              color: "#64748b",
+            }}
+          >
+            {day}
+          </div>
+        ))}
+      </div>
+
+      <div style={calendarGridStyle}>{cells}</div>
+    </div>
+  );
+}
+
+function CalendarPicker({ value, onChange, data, monthsToShow = 1 }) {
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    const base = value ? new Date(value + "T00:00:00") : new Date();
+    return new Date(base.getFullYear(), base.getMonth(), 1);
+  });
+
+  useEffect(() => {
+    if (!value) return;
+    const selected = new Date(value + "T00:00:00");
+    const selectedMonthStart = new Date(selected.getFullYear(), selected.getMonth(), 1);
+    if (selectedMonthStart.getTime() !== currentMonth.getTime()) {
+      setCurrentMonth(selectedMonthStart);
+    }
+  }, [value, currentMonth]);
+
+  const monthDates = useMemo(() => {
+    return Array.from({ length: monthsToShow }, (_, idx) => {
+      return new Date(currentMonth.getFullYear(), currentMonth.getMonth() + idx, 1);
+    });
+  }, [currentMonth, monthsToShow]);
+
+  return (
+    <div>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: "10px",
+          marginBottom: "12px",
+        }}
+      >
+        <button
+          type="button"
+          onClick={() =>
+            setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))
+          }
+          style={calendarNavButtonStyle}
+        >
+          이전
+        </button>
+
+        <div style={{ fontSize: "14px", color: "#475569", fontWeight: "700" }}>
+          날짜를 눌러 선택하세요
+        </div>
+
+        <button
+          type="button"
+          onClick={() =>
+            setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))
+          }
+          style={calendarNavButtonStyle}
+        >
+          다음
+        </button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "14px" }}>
+        {monthDates.map((monthDate) => (
+          <MonthGrid
+            key={`${monthDate.getFullYear()}-${monthDate.getMonth()}`}
+            monthDate={monthDate}
+            selectedDate={value}
+            onSelect={onChange}
+            data={data}
+          />
+        ))}
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "8px 14px",
+          marginTop: "12px",
+          fontSize: "13px",
+          color: "#475569",
+        }}
+      >
+        <LegendDot color="#2563eb" label="활성화" />
+        <LegendDot color="#ef4444" label="선택 불가" />
+        <LegendDot color="#94a3b8" label="아직 활성화 전" />
+      </div>
+    </div>
+  );
+}
+
 export default function PublicPage() {
   const [data, setData] = useState(initialData);
   const [windowWidth, setWindowWidth] = useState(
@@ -101,16 +341,14 @@ export default function PublicPage() {
 
   const [applyForm, setApplyForm] = useState({
     date: "",
-    name: "",
-    level: "",
-    birth6: "",
-    phone: "",
-    guestMember: "",
+    applicantName: "",
+    guestName: "",
+    guestLevel: "",
+    phone8: "",
   });
   const [applyMessage, setApplyMessage] = useState("");
 
-  const [checkBirth6, setCheckBirth6] = useState("");
-  const [checkPhoneLast4, setCheckPhoneLast4] = useState("");
+  const [checkPhone8, setCheckPhone8] = useState("");
   const [checkResults, setCheckResults] = useState([]);
   const [checkSearched, setCheckSearched] = useState(false);
 
@@ -147,12 +385,11 @@ export default function PublicPage() {
       applications: (applicationRows ?? []).map((row) => ({
         id: row.id,
         date: row.date,
-        name: row.name,
-        level: row.level,
-        birth6: row.birth6,
+        applicantName: row.name,
+        guestName: row.guest_member,
+        guestLevel: row.level,
         phone: row.phone,
-        phoneLast4: row.phone_last4,
-        guestMember: row.guest_member,
+        phone8: row.phone8 ?? row.phone_8 ?? (row.phone ? String(row.phone).slice(-8) : ""),
         status: row.status,
         createdAt: row.created_at,
       })),
@@ -173,63 +410,29 @@ export default function PublicPage() {
     return getAvailabilityText(data, applyForm.date);
   }, [data, applyForm.date]);
 
-  const selectableDates = useMemo(() => {
-    const today = new Date();
-    const list = [];
-    const weekdayNames = ["일", "월", "화", "수", "목", "금", "토"];
-
-    let offset = 0;
-
-    while (list.length < 14) {
-      const d = new Date(today);
-      d.setDate(today.getDate() + offset);
-      offset += 1;
-
-      const dayOfWeek = d.getDay();
-      if (dayOfWeek === 0 || dayOfWeek === 6) continue;
-
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      const value = `${y}-${m}-${day}`;
-      const label = `${m}/${day} (${weekdayNames[dayOfWeek]})`;
-
-      list.push({ value, label });
-    }
-
-    return list;
-  }, []);
-
   async function handleApply() {
-    const cleanBirth6 = onlyDigits(applyForm.birth6).slice(0, 6);
-    const cleanPhone = onlyDigits(applyForm.phone).slice(0, 11);
+    const cleanPhone8 = onlyDigits(applyForm.phone8).slice(0, 8);
 
     if (
       !applyForm.date ||
-      !applyForm.name ||
-      !applyForm.level ||
-      !cleanBirth6 ||
-      !cleanPhone ||
-      !applyForm.guestMember
+      !applyForm.applicantName ||
+      !applyForm.guestName ||
+      !applyForm.guestLevel ||
+      !cleanPhone8
     ) {
       setApplyMessage("모든 항목을 입력해주세요.");
       return;
     }
 
-    if (cleanBirth6.length !== 6) {
-      setApplyMessage("생년월일 6자리를 정확히 입력해주세요.");
-      return;
-    }
-
-    if (cleanPhone.length < 10) {
-      setApplyMessage("전화번호를 정확히 입력해주세요.");
+    if (cleanPhone8.length !== 8) {
+      setApplyMessage("신청자 전화번호 8자리를 정확히 입력해주세요.");
       return;
     }
 
     const today = getTodayLocalDateString();
 
     if (applyForm.date !== today) {
-      setApplyMessage("신청은 당일 오후 12시부터만 가능합니다.");
+      setApplyMessage("신청은 당일만 가능합니다.");
       return;
     }
 
@@ -239,9 +442,7 @@ export default function PublicPage() {
     }
 
     if (!canOpenByTime(applyForm.date, data.settings.bookingOpenHour)) {
-      setApplyMessage(
-        `해당 날짜 신청은 ${data.settings.bookingOpenHour}:00부터 가능합니다.`
-      );
+      setApplyMessage(`해당 날짜 신청은 ${data.settings.bookingOpenHour}:00부터 가능합니다.`);
       return;
     }
 
@@ -255,8 +456,7 @@ export default function PublicPage() {
     const duplicate = data.applications.some(
       (app) =>
         app.date === applyForm.date &&
-        app.birth6 === cleanBirth6 &&
-        app.phone === cleanPhone &&
+        app.phone8 === cleanPhone8 &&
         app.status !== "canceled"
     );
 
@@ -265,15 +465,16 @@ export default function PublicPage() {
       return;
     }
 
+    const fullPhone = `010${cleanPhone8}`;
+
     const { error } = await supabase.from("guest_applications").insert([
       {
         date: applyForm.date,
-        name: applyForm.name,
-        level: applyForm.level,
-        birth6: cleanBirth6,
-        phone: cleanPhone,
-        phone_last4: cleanPhone.slice(-4),
-        guest_member: applyForm.guestMember,
+        name: applyForm.applicantName,
+        level: applyForm.guestLevel,
+        phone: fullPhone,
+        phone8: cleanPhone8,
+        guest_member: applyForm.guestName,
         status: "pending",
       },
     ]);
@@ -288,23 +489,26 @@ export default function PublicPage() {
     setApplyMessage("신청이 완료되었습니다. 신청확인에서 상태를 조회할 수 있습니다.");
     setApplyForm({
       date: "",
-      name: "",
-      level: "",
-      birth6: "",
-      phone: "",
-      guestMember: "",
+      applicantName: "",
+      guestName: "",
+      guestLevel: "",
+      phone8: "",
     });
   }
 
   async function handleCheck() {
-    const b = onlyDigits(checkBirth6).slice(0, 6);
-    const p = onlyDigits(checkPhoneLast4).slice(0, 4);
+    const phone8 = onlyDigits(checkPhone8).slice(0, 8);
+
+    if (phone8.length !== 8) {
+      setCheckResults([]);
+      setCheckSearched(true);
+      return;
+    }
 
     const { data: rows, error } = await supabase
       .from("guest_applications")
       .select("*")
-      .eq("birth6", b)
-      .eq("phone_last4", p)
+      .eq("phone8", phone8)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -316,9 +520,9 @@ export default function PublicPage() {
     const found = (rows ?? []).map((row) => ({
       id: row.id,
       date: row.date,
-      name: row.name,
-      level: row.level,
-      guestMember: row.guest_member,
+      applicantName: row.name,
+      guestName: row.guest_member,
+      guestLevel: row.level,
       status: row.status,
     }));
 
@@ -373,6 +577,7 @@ export default function PublicPage() {
               >
                 SOLOHL
               </div>
+
               <h1
                 style={{
                   margin: 0,
@@ -384,6 +589,7 @@ export default function PublicPage() {
               >
                 {data.settings.clubName}
               </h1>
+
               <p
                 style={{
                   color: "#475569",
@@ -394,7 +600,7 @@ export default function PublicPage() {
                   maxWidth: "560px",
                 }}
               >
-                게스트 신청 후에는 신청 확인을 통해 신청을 확인할 수 있습니다.
+                게스트 신청 후에는 신청 확인을 통해 신청 상태를 조회할 수 있습니다.
               </p>
             </div>
 
@@ -425,7 +631,7 @@ export default function PublicPage() {
               <div style={{ color: "#334155", fontSize: "15px", lineHeight: "1.9" }}>
                 <div>솔올클럽을 찾아주셔서 감사합니다!</div>
                 <div>• 게스트 신청은 화, 목, 금 당일 오후 12시에 선착순 5명만 오픈됩니다.</div>
-                <div>• 오후 3시이후 신청 확인을 통해 게스트 신청 승인을 확인할 수 있습니다.</div>
+                <div>• 오후 3시 이후 신청 확인을 통해 게스트 신청 승인을 확인할 수 있습니다.</div>
                 <div>• 게스트는 꼭 초대 멤버와 함께 동행해주신 후, 기본 규칙 지켜주시길 바랍니다.</div>
                 <div>• 회원당 게스트 1인만 가능하며, 동일멤버로 게임 반복시 게스트 거절될 수 있습니다.</div>
                 <div style={{ color: "#dc2626", fontWeight: "700" }}>
@@ -437,85 +643,77 @@ export default function PublicPage() {
             <div style={cardStyle}>
               <h2 style={sectionTitleStyle}>게스트 신청</h2>
 
-              <div style={{ display: "grid", gridTemplateColumns: formColumns, gap: "16px" }}>
+              <div style={{ display: "grid", gap: "16px" }}>
                 <div>
                   <label style={labelStyle}>신청 날짜</label>
-                  <select
-                    value={applyForm.date}
-                    onChange={(e) => setApplyForm({ ...applyForm, date: e.target.value })}
-                    style={inputStyle}
-                  >
-                    <option value="">날짜 선택</option>
-                    {selectableDates.map((item) => (
-                      <option key={item.value} value={item.value}>
-                        {item.label}
-                      </option>
-                    ))}
-                  </select>
+                  <div style={{ marginTop: "8px" }}>
+                    <CalendarPicker
+                      value={applyForm.date}
+                      onChange={(date) => setApplyForm({ ...applyForm, date })}
+                      data={data}
+                      monthsToShow={1}
+                    />
+                  </div>
 
                   <div style={{ fontSize: "13px", color: "#64748b", marginTop: "8px" }}>
                     {availabilityText}
                   </div>
                 </div>
 
-                <div>
-                  <label style={labelStyle}>신청자 이름</label>
-                  <input
-                    value={applyForm.name}
-                    onChange={(e) => setApplyForm({ ...applyForm, name: e.target.value })}
-                    style={inputStyle}
-                    placeholder="홍길동"
-                  />
-                </div>
+                <div style={{ display: "grid", gridTemplateColumns: formColumns, gap: "16px" }}>
+                  <div>
+                    <label style={labelStyle}>신청자 이름</label>
+                    <input
+                      value={applyForm.applicantName}
+                      onChange={(e) =>
+                        setApplyForm({ ...applyForm, applicantName: e.target.value })
+                      }
+                      style={inputStyle}
+                      placeholder="홍길동"
+                    />
+                  </div>
 
-                <div>
-                  <label style={labelStyle}>신청자 급수</label>
-                  <input
-                    value={applyForm.level}
-                    onChange={(e) => setApplyForm({ ...applyForm, level: e.target.value })}
-                    style={inputStyle}
-                    placeholder="시군기준 : A, B, C, D, 초심"
-                  />
-                </div>
+                  <div>
+                    <label style={labelStyle}>게스트 이름</label>
+                    <input
+                      value={applyForm.guestName}
+                      onChange={(e) =>
+                        setApplyForm({ ...applyForm, guestName: e.target.value })
+                      }
+                      style={inputStyle}
+                      placeholder="김OO"
+                    />
+                  </div>
 
-                <div>
-                  <label style={labelStyle}>생년월일 6자리</label>
-                  <input
-                    value={applyForm.birth6}
-                    onChange={(e) =>
-                      setApplyForm({
-                        ...applyForm,
-                        birth6: onlyDigits(e.target.value).slice(0, 6),
-                      })
-                    }
-                    style={inputStyle}
-                    placeholder="900101"
-                  />
-                </div>
+                  <div>
+                    <label style={labelStyle}>게스트 급수</label>
+                    <input
+                      value={applyForm.guestLevel}
+                      onChange={(e) =>
+                        setApplyForm({ ...applyForm, guestLevel: e.target.value })
+                      }
+                      style={inputStyle}
+                      placeholder="시군기준 : A, B, C, D, 초심"
+                    />
+                  </div>
 
-                <div>
-                  <label style={labelStyle}>전화번호</label>
-                  <input
-                    value={applyForm.phone}
-                    onChange={(e) =>
-                      setApplyForm({
-                        ...applyForm,
-                        phone: onlyDigits(e.target.value).slice(0, 11),
-                      })
-                    }
-                    style={inputStyle}
-                    placeholder="01012345678"
-                  />
-                </div>
-
-                <div>
-                  <label style={labelStyle}>초대회원</label>
-                  <input
-                    value={applyForm.guestMember}
-                    onChange={(e) => setApplyForm({ ...applyForm, guestMember: e.target.value })}
-                    style={inputStyle}
-                    placeholder="김OO"
-                  />
+                  <div>
+                    <label style={labelStyle}>신청자 전화번호 8자리</label>
+                    <input
+                      value={applyForm.phone8}
+                      onChange={(e) =>
+                        setApplyForm({
+                          ...applyForm,
+                          phone8: onlyDigits(e.target.value).slice(0, 8),
+                        })
+                      }
+                      style={inputStyle}
+                      placeholder="12345678"
+                    />
+                    <div style={{ fontSize: "12px", color: "#64748b", marginTop: "6px" }}>
+                      010 제외 8자리만 입력
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -548,22 +746,16 @@ export default function PublicPage() {
 
               <div style={{ display: "grid", gap: "16px" }}>
                 <div>
-                  <label style={labelStyle}>생년월일 6자리</label>
+                  <label style={labelStyle}>신청자 전화번호 8자리</label>
                   <input
-                    value={checkBirth6}
-                    onChange={(e) => setCheckBirth6(onlyDigits(e.target.value).slice(0, 6))}
+                    value={checkPhone8}
+                    onChange={(e) => setCheckPhone8(onlyDigits(e.target.value).slice(0, 8))}
                     style={inputStyle}
-                    placeholder="900101"
+                    placeholder="12345678"
                   />
-                </div>
-                <div>
-                  <label style={labelStyle}>전화번호 뒤 4자리</label>
-                  <input
-                    value={checkPhoneLast4}
-                    onChange={(e) => setCheckPhoneLast4(onlyDigits(e.target.value).slice(0, 4))}
-                    style={inputStyle}
-                    placeholder="1234"
-                  />
+                  <div style={{ fontSize: "12px", color: "#64748b", marginTop: "6px" }}>
+                    010 제외 8자리 입력
+                  </div>
                 </div>
               </div>
 
@@ -599,10 +791,10 @@ export default function PublicPage() {
                     }}
                   >
                     <div style={{ fontWeight: "700", color: "#0f172a" }}>
-                      {formatDate(item.date)} / {item.name}
+                      {formatDate(item.date)} / {item.applicantName}
                     </div>
                     <div style={{ color: "#64748b", marginTop: "6px", fontSize: "14px" }}>
-                      급수 {item.level} · 초대 멤버 {item.guestMember}
+                      게스트 {item.guestName} · 급수 {item.guestLevel}
                     </div>
                     <div
                       style={{
@@ -693,4 +885,45 @@ const bottomAdminButtonStyle = {
   fontWeight: "800",
   cursor: "pointer",
   boxShadow: "0 8px 18px rgba(15, 23, 42, 0.08)",
+};
+
+const calendarNavButtonStyle = {
+  padding: "8px 12px",
+  borderRadius: "10px",
+  border: "1px solid #cbd5e1",
+  background: "#ffffff",
+  color: "#0f172a",
+  cursor: "pointer",
+  fontWeight: "700",
+};
+
+const calendarMonthCardStyle = {
+  border: "1px solid #e5e7eb",
+  borderRadius: "18px",
+  padding: "14px",
+  background: "#ffffff",
+};
+
+const calendarWeekHeaderStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+  gap: "6px",
+  marginBottom: "8px",
+};
+
+const calendarGridStyle = {
+  display: "grid",
+  gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+  gap: "6px",
+};
+
+const calendarBlankCellStyle = {
+  minHeight: "66px",
+};
+
+const calendarDateButtonStyle = {
+  minHeight: "66px",
+  borderRadius: "12px",
+  padding: "8px 4px",
+  background: "#ffffff",
 };
